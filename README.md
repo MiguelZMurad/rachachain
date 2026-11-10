@@ -10,15 +10,34 @@ Cada grupo de despesas (uma viagem, uma república, uma festa) é um contrato `G
 
 ## Sumário
 
-1. [Status do projeto](#1-status-do-projeto)
-2. [Estrutura do repositório](#2-estrutura-do-repositório)
-3. [Preparar um computador novo](#3-preparar-um-computador-novo)
-4. [Comandos do dia a dia](#4-comandos-do-dia-a-dia)
-5. [Rodar a blockchain local](#5-rodar-a-blockchain-local)
-6. [Configurar o MetaMask](#6-configurar-o-metamask)
-7. [Fluxo de trabalho com Git (dupla)](#7-fluxo-de-trabalho-com-git-dupla)
-8. [Variáveis secretas (`.env`) para a Sepolia](#8-variáveis-secretas-env-para-a-sepolia)
-9. [Problemas comuns](#9-problemas-comuns)
+- [RachaChain](#rachachain)
+  - [Sumário](#sumário)
+  - [1. Status do projeto](#1-status-do-projeto)
+    - [Contratos implantados](#contratos-implantados)
+  - [2. Estrutura do repositório](#2-estrutura-do-repositório)
+  - [3. Preparar um computador novo](#3-preparar-um-computador-novo)
+    - [3.1 Pré-requisitos](#31-pré-requisitos)
+    - [3.2 Clonar o repositório](#32-clonar-o-repositório)
+    - [3.3 Instalar as dependências](#33-instalar-as-dependências)
+    - [3.4 Conferir que está tudo funcionando](#34-conferir-que-está-tudo-funcionando)
+    - [3.5 Criar o `.env` (só quando for fazer deploy na Sepolia)](#35-criar-o-env-só-quando-for-fazer-deploy-na-sepolia)
+  - [4. Comandos do dia a dia](#4-comandos-do-dia-a-dia)
+  - [5. Rodar a blockchain local](#5-rodar-a-blockchain-local)
+  - [6. Configurar o MetaMask](#6-configurar-o-metamask)
+    - [6.1 Rede local do Hardhat](#61-rede-local-do-hardhat)
+    - [6.2 Contas de teste](#62-contas-de-teste)
+    - [6.3 Ao reiniciar a blockchain local](#63-ao-reiniciar-a-blockchain-local)
+    - [6.4 Em computadores compartilhados (laboratório)](#64-em-computadores-compartilhados-laboratório)
+  - [7. Fluxo de trabalho com Git (dupla)](#7-fluxo-de-trabalho-com-git-dupla)
+    - [Sempre ao começar a trabalhar](#sempre-ao-começar-a-trabalhar)
+    - [Ao terminar uma parte](#ao-terminar-uma-parte)
+    - [Boas práticas](#boas-práticas)
+  - [8. Variáveis secretas (`.env`) para a Sepolia](#8-variáveis-secretas-env-para-a-sepolia)
+    - [8.1 Garantir que o `.env` está no `.gitignore`](#81-garantir-que-o-env-está-no-gitignore)
+    - [8.2 Criar o arquivo](#82-criar-o-arquivo)
+    - [8.3 SepoliaETH](#83-sepoliaeth)
+  - [9. Problemas comuns](#9-problemas-comuns)
+  - [10. Combinados da dupla](#10-combinados-da-dupla)
 
 ---
 
@@ -27,12 +46,22 @@ Cada grupo de despesas (uma viagem, uma república, uma festa) é um contrato `G
 | Etapa | Situação |
 |---|---|
 | Contrato `Grupo` (membros, despesas, saldos, quitação) | ✅ pronto |
-| Contrato `GrupoFactory` (cria grupos e chama `adicionarMembros`) | 🔄 em andamento |
-| Testes unitários (Hardhat/Mocha) | ⏳ a fazer |
-| Script de deploy (`scripts/deploy.js`) | ⏳ a fazer (ainda é o do boilerplate) |
-| Deploy na Sepolia | ⏳ a fazer |
+| Contrato `GrupoFactory` (cria grupos e chama `adicionarMembros`) | ✅ pronto |
+| Testes unitários (Hardhat/Mocha) — 35 testes | ✅ pronto |
+| Script de deploy (`scripts/deploy.js`), endereços salvos por rede | ✅ pronto |
+| Deploy na Sepolia | ✅ feito |
 | Frontend (React + ethers.js) | ⏳ a fazer (ainda é o do boilerplate) |
 | Hospedagem HTTP (Labgrad3 ou nuvem) | ⏳ a fazer |
+| Vídeo dos testes (2-3 min) | ⏳ a fazer |
+| README final de entrega | ⏳ a fazer |
+
+### Contratos implantados
+
+| Rede | Contrato | Endereço |
+|---|---|---|
+| Sepolia (chain ID 11155111) | `GrupoFactory` | [`0x4136F445098bA2AAc94658249Bc43AF4049f29b7`](https://sepolia.etherscan.io/address/0x4136F445098bA2AAc94658249Bc43AF4049f29b7) |
+
+Os contratos `Grupo` não aparecem aqui: eles são criados pela `GrupoFactory` quando um usuário cria um grupo pela dApp, e cada um tem seu próprio endereço.
 
 **Prazos:** Entrega 2 (Sepolia + HTTP + GitHub + vídeo dos testes) até **03/dez às 17h**. Apresentação entre 03 e 10/dez.
 
@@ -46,16 +75,30 @@ rachachain/
 │   ├── Grupo.sol            ← um grupo de despesas (criado pela Factory)
 │   ├── GrupoFactory.sol     ← contrato principal (Contract Factory)
 │   └── Token.sol            ← do boilerplate (será removido)
-├── test/                    ← testes unitários (Mocha + Chai)
+├── test/
+│   └── RachaChain.js        ← testes unitários (Mocha + Chai)
 ├── scripts/
-│   └── deploy.js            ← deploy dos contratos (a adaptar)
+│   └── deploy.js            ← deploy da GrupoFactory + arquivos do frontend
 ├── frontend/                ← dApp em React (a adaptar)
-├── hardhat.config.js        ← configuração do Hardhat
+│   └── src/contracts/       ← GERADO pelo deploy.js (versionado no Git)
+│       ├── contract-address.json   ← endereço da Factory em cada rede
+│       ├── GrupoFactory.json       ← ABI da Factory
+│       └── Grupo.json              ← ABI do Grupo
+├── hardhat.config.js        ← configuração do Hardhat (rede Sepolia via .env)
 ├── .env                     ← chaves secretas (NÃO vai para o Git)
 └── README.md
 ```
 
 Pastas geradas automaticamente, que **não** vão para o Git: `node_modules/`, `frontend/node_modules/`, `artifacts/`, `cache/`.
+
+**Endereços por rede.** O `contract-address.json` guarda o endereço da Factory usando o *chain ID* como chave, para que a mesma dApp funcione na rede local e na Sepolia:
+```json
+{
+  "31337":    { "GrupoFactory": "0x5FbDB..." },
+  "11155111": { "GrupoFactory": "0x4136F445098bA2AAc94658249Bc43AF4049f29b7" }
+}
+```
+Cada deploy atualiza **só** a entrada da rede em que foi feito. O endereço da Sepolia é permanente; o da rede local muda sempre que o `npx hardhat node` é reiniciado.
 
 ---
 
@@ -132,12 +175,12 @@ Todos os comandos `npx hardhat ...` devem ser rodados **na raiz do projeto** (`r
 | O que fazer | Comando |
 |---|---|
 | Compilar os contratos | `npx hardhat compile` |
+| Rodar os testes do projeto | `npx hardhat test test/RachaChain.js` |
 | Rodar todos os testes | `npx hardhat test` |
-| Rodar um arquivo de teste | `npx hardhat test test/NomeDoArquivo.js` |
 | Subir a blockchain local | `npx hardhat node` |
 | Abrir o console interativo | `npx hardhat console --network localhost` |
 | Fazer deploy local | `npx hardhat run scripts/deploy.js --network localhost` |
-| Fazer deploy na Sepolia | `npx hardhat run scripts/deploy.js --network sepolia` |
+| Fazer deploy na Sepolia (⚠️ combinar antes, ver seção 10) | `npx hardhat run scripts/deploy.js --network sepolia` |
 | Iniciar o frontend | `cd frontend && npm run start` |
 | Limpar arquivos compilados | `npx hardhat clean` |
 
@@ -238,7 +281,17 @@ SEPOLIA_PRIVATE_KEY=chave_privada_da_conta_de_deploy
 
 > ⚠️ **Segurança:** use uma conta **só de testes**, sem ETH real. Quem tem a chave privada controla a conta em todas as redes. Nunca coloque essas chaves no código, em prints ou em mensagens.
 
-O projeto usa `dotenv` (e não `npx hardhat vars`) porque o `vars` só existe a partir do Hardhat 2.19, e o boilerplate usa o 2.12.5. A configuração da rede Sepolia no `hardhat.config.js` será adicionada na etapa de deploy.
+O projeto usa `dotenv` (e não `npx hardhat vars`) porque o `vars` só existe a partir do Hardhat 2.19, e o boilerplate usa o 2.12.5.
+
+A rede `sepolia` só é criada no `hardhat.config.js` quando as **duas** variáveis existem. Sem o `.env`, compilar, testar e usar a rede local funcionam normalmente. A chave privada pode ser colada com ou sem `0x`.
+
+Para conferir o arquivo **sem expor as chaves**:
+```bash
+sed 's/=.*/=***/' .env      # deve mostrar INFURA_API_KEY=*** e SEPOLIA_PRIVATE_KEY=***
+git check-ignore .env       # deve imprimir ".env" (ou seja, o Git ignora o arquivo)
+```
+
+> **Quem precisa do `.env`?** Só quem for fazer **deploy** na Sepolia. Para usar a dApp na Sepolia (criar grupos, registrar despesas), basta o MetaMask com SepoliaETH: o endereço da Factory já está no repositório.
 
 ### 8.3 SepoliaETH
 
@@ -261,3 +314,22 @@ Para fazer deploys e transações na Sepolia, a conta precisa de SepoliaETH (ETH
 | Site conectado com a conta errada | A conta nova não foi autorizada para o site | No rodapé do MetaMask, clicar em **Conectar** para a conta atual |
 | `fatal: No configured push destination` | Repositório sem remoto | `git remote add origin <URL>` e `git push -u origin main` |
 | `remote: Repository not found` no push | URL errada, ou repositório privado sem autenticação | Conferir com `git remote -v`; usar o Personal Access Token como senha |
+| `Error HH100: Network sepolia doesn't exist` | `.env` ausente, vazio ou com nomes errados | Conferir com `ls -la .env` e `sed 's/=.*/=***/' .env` |
+| `injected env (0) from .env` | O dotenv não encontrou variáveis (arquivo não existe ou está vazio) | Criar/preencher o `.env` na raiz do projeto |
+| Deploy na Sepolia parado em "Aguardando confirmação..." | A transação ainda não foi minerada | Esperar (até ~1 min); acompanhar o hash da transação em sepolia.etherscan.io |
+
+---
+
+## 10. Combinados da dupla
+
+**Antes de começar a trabalhar, sempre `git pull`.** Ao terminar uma parte, commit + `git push`. Commits pequenos, com mensagens claras.
+
+**Deploy na Sepolia: só depois de combinar.** A `GrupoFactory` da Sepolia já está implantada (ver [Contratos implantados](#contratos-implantados)). Um novo deploy cria **outra** Factory, vazia, e os grupos criados na anterior deixam de aparecer na dApp. Só faça um novo deploy se um contrato mudar, e avise antes. Depois do deploy, faça commit do `frontend/src/contracts` e atualize o endereço neste README.
+
+**Mudou um contrato?** Rode os testes (`npx hardhat test test/RachaChain.js`) antes do commit. Se a mudança for para a Sepolia, ela exige um novo deploy (ver item anterior).
+
+**Arquivos que podem gerar conflito.** O `frontend/src/contracts/contract-address.json` muda a cada deploy local. Como o endereço local costuma ser o mesmo nos dois computadores (`0x5FbDB...` no primeiro deploy após subir o node), conflitos são raros. Se acontecerem, mantenham sempre a entrada `"11155111"` da Sepolia.
+
+**Segredos nunca vão para o Git:** `.env`, chaves privadas, frases de recuperação. Antes de todo `git add .`, confiram no `git status`.
+
+**Divisão de tarefas.** Combinem quem mexe em qual arquivo (ex.: um no contrato, outro no frontend; ou um componente React para cada um) para evitar editar o mesmo trecho ao mesmo tempo.
