@@ -12,7 +12,7 @@ const networks = {};
 if (INFURA_API_KEY && SEPOLIA_PRIVATE_KEY) {
   networks.sepolia = {
     url: `https://sepolia.infura.io/v3/${INFURA_API_KEY}`,
-    // O MetaMask exporta a chave sem "0x"; o Hardhat espera com "0x"
+    chainId: 11155111,
     accounts: [
       SEPOLIA_PRIVATE_KEY.startsWith("0x")
         ? SEPOLIA_PRIVATE_KEY

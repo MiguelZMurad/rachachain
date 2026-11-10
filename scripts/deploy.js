@@ -43,11 +43,17 @@ function saveFrontendFiles(factory) {
     fs.mkdirSync(contractsDir, { recursive: true });
   }
 
-  // Endereço da factory (os grupos têm endereços próprios, descobertos pela dApp)
-  fs.writeFileSync(
-    path.join(contractsDir, "contract-address.json"),
-    JSON.stringify({ GrupoFactory: factory.address }, undefined, 2)
-  );
+  // Endereço da factory, guardado por rede (chave = chain ID).
+  // Assim um deploy na Sepolia não apaga o endereço da rede local, e vice-versa.
+  const arquivo = path.join(contractsDir, "contract-address.json");
+  let enderecos = {};
+  if (fs.existsSync(arquivo)) {
+    enderecos = JSON.parse(fs.readFileSync(arquivo, "utf8"));
+    // Formato antigo ({ GrupoFactory: ... }, sem chain ID): descarta
+    if (enderecos.GrupoFactory) enderecos = {};
+  }
+  enderecos[network.config.chainId ?? 31337] = { GrupoFactory: factory.address };
+  fs.writeFileSync(arquivo, JSON.stringify(enderecos, undefined, 2));
 
   // ABIs: a dApp precisa das duas, a da Factory e a do Grupo
   for (const nome of ["GrupoFactory", "Grupo"]) {
