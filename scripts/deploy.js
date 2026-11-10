@@ -1,56 +1,64 @@
-// This is a script for deploying your contracts. You can adapt it to deploy
-// yours, or create new ones.
-
+// Deploy da GrupoFactory (os contratos Grupo são criados depois, pela própria factory).
+// Também salva o endereço e as ABIs em frontend/src/contracts para a dApp usar.
 const path = require("path");
+const fs = require("fs");
 
 async function main() {
-  // This is just a convenience check
   if (network.name === "hardhat") {
     console.warn(
-      "You are trying to deploy a contract to the Hardhat Network, which" +
-        "gets automatically created and destroyed every time. Use the Hardhat" +
-        " option '--network localhost'"
+      "Atenção: a rede 'hardhat' é temporária e some ao fim do script. " +
+        "Use --network localhost ou --network sepolia."
     );
   }
 
-  // ethers is available in the global scope
   const [deployer] = await ethers.getSigners();
+  console.log("Rede:", network.name);
+  console.log("Conta de deploy:", deployer.address);
   console.log(
-    "Deploying the contracts with the account:",
-    await deployer.getAddress()
+    "Saldo:",
+    ethers.utils.formatEther(await deployer.getBalance()),
+    "ETH"
   );
 
-  console.log("Account balance:", (await deployer.getBalance()).toString());
+  const Factory = await ethers.getContractFactory("GrupoFactory");
+  const factory = await Factory.deploy();
+  console.log("Transação de deploy:", factory.deployTransaction.hash);
+  console.log("Aguardando confirmação...");
+  await factory.deployed();
 
-  const Token = await ethers.getContractFactory("Token");
-  const token = await Token.deploy();
-  await token.deployed();
+  console.log("GrupoFactory implantada em:", factory.address);
 
-  console.log("Token address:", token.address);
-
-  // We also save the contract's artifacts and address in the frontend directory
-  saveFrontendFiles(token);
-}
-
-function saveFrontendFiles(token) {
-  const fs = require("fs");
-  const contractsDir = path.join(__dirname, "..", "frontend", "src", "contracts");
-
-  if (!fs.existsSync(contractsDir)) {
-    fs.mkdirSync(contractsDir);
+  if (network.name === "sepolia") {
+    console.log(
+      "Etherscan: https://sepolia.etherscan.io/address/" + factory.address
+    );
   }
 
+  saveFrontendFiles(factory);
+}
+
+function saveFrontendFiles(factory) {
+  const contractsDir = path.join(__dirname, "..", "frontend", "src", "contracts");
+  if (!fs.existsSync(contractsDir)) {
+    fs.mkdirSync(contractsDir, { recursive: true });
+  }
+
+  // Endereço da factory (os grupos têm endereços próprios, descobertos pela dApp)
   fs.writeFileSync(
     path.join(contractsDir, "contract-address.json"),
-    JSON.stringify({ Token: token.address }, undefined, 2)
+    JSON.stringify({ GrupoFactory: factory.address }, undefined, 2)
   );
 
-  const TokenArtifact = artifacts.readArtifactSync("Token");
+  // ABIs: a dApp precisa das duas, a da Factory e a do Grupo
+  for (const nome of ["GrupoFactory", "Grupo"]) {
+    const artifact = artifacts.readArtifactSync(nome);
+    fs.writeFileSync(
+      path.join(contractsDir, `${nome}.json`),
+      JSON.stringify(artifact, null, 2)
+    );
+  }
 
-  fs.writeFileSync(
-    path.join(contractsDir, "Token.json"),
-    JSON.stringify(TokenArtifact, null, 2)
-  );
+  console.log("Arquivos do frontend salvos em", contractsDir);
 }
 
 main()
