@@ -2,6 +2,8 @@ import React from "react";
 import { ethers } from "ethers";
 import { abreviar, formatarSaldo } from "./utils";
 import { RegistrarDespesa } from "./RegistrarDespesa";
+import { QuitarDivida } from "./QuitarDivida";
+import { AdicionarMembro } from "./AdicionarMembro";
 
 // Tela de um grupo: membros com saldos e histórico (montado pelos eventos).
 // Props:
@@ -12,9 +14,21 @@ import { RegistrarDespesa } from "./RegistrarDespesa";
 //   voltar(): volta para a lista de grupos
 //   atualizar(): recarrega os dados do grupo
 //   registrarDespesa(descricao, valorWei, participantes[]): função do Dapp
-export function DetalheGrupo({ grupo, meuEndereco, voltar, atualizar, registrarDespesa }) {
+//   quitar(credor, valorWei): função do Dapp
+//   adicionarMembro(endereco, apelido): função do Dapp (via Factory)
+export function DetalheGrupo({
+  grupo, meuEndereco, voltar, atualizar, registrarDespesa, quitar, adicionarMembro,
+}) {
   const eu = meuEndereco.toLowerCase();
-  const souMembro = grupo.membros.some((m) => m.endereco.toLowerCase() === eu);
+  const euMembro = grupo.membros.find((m) => m.endereco.toLowerCase() === eu);
+  const souMembro = euMembro !== undefined;
+
+  // Quitação: só aparece para quem deve (saldo negativo)
+  const devo = souMembro && euMembro.saldo.lt(0);
+  const credores = grupo.membros.filter((m) => m.saldo.gt(0));
+
+  // Adicionar membro: só o criador do grupo
+  const souCriador = grupo.criador.toLowerCase() === eu;
 
   // Endereço -> "Apelido" (ou "Apelido (você)")
   const nomeDe = (endereco) => {
@@ -81,7 +95,20 @@ export function DetalheGrupo({ grupo, meuEndereco, voltar, atualizar, registrarD
         />
       )}
 
-      {/* Etapas 5 e 6 (quitação, adicionar membro) entram aqui */}
+      {/* ---------- Quitar dívida (só quem deve) ---------- */}
+      {devo && (
+        <QuitarDivida
+          key={`${grupo.endereco}-${euMembro.saldo.toString()}`}
+          minhaDivida={euMembro.saldo.abs()}
+          credores={credores}
+          quitar={quitar}
+        />
+      )}
+
+      {/* ---------- Adicionar membro (só o criador) ---------- */}
+      {souCriador && (
+        <AdicionarMembro membros={grupo.membros} adicionar={adicionarMembro} />
+      )}
 
       {/* ---------- Histórico ---------- */}
       <h5 className="mt-4">Histórico</h5>

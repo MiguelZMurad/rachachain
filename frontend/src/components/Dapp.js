@@ -38,9 +38,16 @@ export class Dapp extends React.Component {
       // Transações
       txBeingSent: undefined,     // hash da transação aguardando mineração
       transactionError: undefined,
+
+      // Eventos
+      aviso: undefined,           // última atividade detectada por evento
     };
 
     this.state = this.initialState;
+  }
+
+  componentWillUnmount() {
+    this._pararEventos();
   }
 
   render() {
@@ -86,6 +93,20 @@ export class Dapp extends React.Component {
 
         <hr />
 
+        {/* Atividade detectada pelos eventos dos contratos */}
+        {this.state.aviso && (
+          <div className="alert alert-info d-flex justify-content-between align-items-center">
+            <span>🔔 {this.state.aviso}</span>
+            <button
+              type="button"
+              className="close"
+              onClick={() => this.setState({ aviso: undefined })}
+            >
+              <span>&times;</span>
+            </button>
+          </div>
+        )}
+
         {/* Mensagens de transação */}
         {txBeingSent && <WaitingForTransactionMessage txHash={txBeingSent} />}
         {transactionError && (
@@ -104,6 +125,8 @@ export class Dapp extends React.Component {
               voltar={() => this._fecharGrupo()}
               atualizar={() => this._carregarDetalhe(grupoAberto)}
               registrarDespesa={(...args) => this._registrarDespesa(grupoAberto, ...args)}
+              quitar={(...args) => this._quitar(grupoAberto, ...args)}
+              adicionarMembro={(...args) => this._adicionarMembro(grupoAberto, ...args)}
             />
           ) : (
             <Loading />
@@ -194,6 +217,7 @@ export class Dapp extends React.Component {
   }
 
   async _initialize(userAddress) {
+    this._pararEventos(); // troca de conta: descarta os listeners da conta anterior
     this.setState({ ...this.initialState, selectedAddress: userAddress });
 
     // Em qual rede o MetaMask está?
@@ -242,6 +266,7 @@ export class Dapp extends React.Component {
       }
 
       this.setState({ chainId });
+      await this._iniciarEventos();
       await this._carregarGrupos();
     } catch (error) {
       console.error(error);
@@ -287,6 +312,7 @@ export class Dapp extends React.Component {
 
     // Mais recentes primeiro
     this.setState({ grupos: grupos.reverse() });
+    this._escutarGrupos(enderecos);
   }
 
   // ------------------------------------------------------------------
@@ -374,6 +400,113 @@ export class Dapp extends React.Component {
   }
 
   // ------------------------------------------------------------------
+  // Eventos em tempo real (requisito 3: a interface CAPTURA os eventos)
+  // ------------------------------------------------------------------
+
+  // Escuta os eventos da Factory. Os grupos são escutados em _escutarGrupos.
+  async _iniciarEventos() {
+    this._pararEventos();
+    this._gruposEscutados = {};
+
+    // De quanto em quanto tempo o ethers pergunta à rede por eventos novos
+    this._provider.pollingInterval = 1000;
+
+    // Só interessam eventos a partir de agora (o histórico vem do queryFilter)
+    this._blocoInicial = await this._provider.getBlockNumber();
+
+    // Alguém criou um grupo: posso ter sido incluído como membro
+    this._factory.on("GrupoCriado", (grupo, criador, nome, ev) => {
+      if (ev.blockNumber <= this._blocoInicial) return;
+      this._aoEvento(grupo, () => `${this._quem(criador)} criou o grupo "${nome}"`);
+    });
+
+    // O criador de um grupo adicionou alguém
+    this._factory.on("MembroAdicionadoAoGrupo", (grupo, membro, ev) => {
+      if (ev.blockNumber <= this._blocoInicial) return;
+      this._aoEvento(grupo, (nomeGrupo) =>
+        `${this._quem(membro)} entrou no grupo "${nomeGrupo}"`
+      );
+    });
+  }
+
+  // Escuta os eventos de cada grupo da lista (só assina uma vez por grupo)
+  _escutarGrupos(enderecos) {
+    if (!this._gruposEscutados) return;
+
+    for (const endereco of enderecos) {
+      if (this._gruposEscutados[endereco]) continue;
+
+      const g = this._grupo(endereco);
+      this._gruposEscutados[endereco] = g;
+
+      g.on("DespesaRegistrada", (id, pagador, valor, descricao, participantes, ev) => {
+        if (ev.blockNumber <= this._blocoInicial) return;
+        this._aoEvento(endereco, (nomeGrupo) =>
+          `${this._quem(pagador)} registrou "${descricao}" ` +
+          `(${ethers.utils.formatEther(valor)} ETH) em "${nomeGrupo}"`
+        );
+      });
+
+      g.on("DividaQuitada", (devedor, credor, valor, ev) => {
+        if (ev.blockNumber <= this._blocoInicial) return;
+        this._aoEvento(endereco, (nomeGrupo) =>
+          `${this._quem(devedor)} pagou ${ethers.utils.formatEther(valor)} ETH ` +
+          `para ${this._quem(credor)} em "${nomeGrupo}"`
+        );
+      });
+    }
+  }
+
+  // Reação comum a qualquer evento: recarrega a tela e mostra um aviso.
+  // Vários eventos no mesmo instante (ex.: criarGrupo emite GrupoCriado e
+  // vários MembroAdicionado) geram uma única atualização.
+  _aoEvento(enderecoGrupo, textoFn) {
+    this._eventosPendentes = [...(this._eventosPendentes || []), { enderecoGrupo, textoFn }];
+    clearTimeout(this._timerEventos);
+
+    this._timerEventos = setTimeout(async () => {
+      const pendentes = this._eventosPendentes;
+      this._eventosPendentes = [];
+
+      await this._carregarGrupos();
+      if (this.state.grupoAberto) {
+        await this._carregarDetalhe(this.state.grupoAberto);
+      }
+
+      // Só avisa sobre grupos dos quais o usuário participa
+      const meus = {};
+      for (const g of this.state.grupos || []) meus[g.endereco.toLowerCase()] = g.nome;
+      const textos = pendentes
+        .filter((p) => meus[p.enderecoGrupo.toLowerCase()] !== undefined)
+        .map((p) => p.textoFn(meus[p.enderecoGrupo.toLowerCase()]));
+
+      if (textos.length > 0) {
+        this.setState({ aviso: textos[textos.length - 1] });
+        clearTimeout(this._timerAviso);
+        this._timerAviso = setTimeout(() => this.setState({ aviso: undefined }), 8000);
+      }
+    }, 500);
+  }
+
+  _pararEventos() {
+    if (this._factory) this._factory.removeAllListeners();
+    for (const g of Object.values(this._gruposEscutados || {})) {
+      g.removeAllListeners();
+    }
+    this._gruposEscutados = undefined;
+    clearTimeout(this._timerEventos);
+    clearTimeout(this._timerAviso);
+    this._eventosPendentes = [];
+  }
+
+  // "Você" ou o endereço abreviado
+  _quem(endereco) {
+    return endereco.toLowerCase() === this.state.selectedAddress.toLowerCase()
+      ? "Você"
+      : abreviar(endereco);
+  }
+
+  // ------------------------------------------------------------------
   // Transações
   // ------------------------------------------------------------------
 
@@ -417,6 +550,29 @@ export class Dapp extends React.Component {
   async _registrarDespesa(enderecoGrupo, descricao, valorWei, participantes) {
     const ok = await this._sendTransaction(() =>
       this._grupo(enderecoGrupo).registrarDespesa(descricao, valorWei, participantes)
+    );
+    if (ok) {
+      await this._carregarDetalhe(enderecoGrupo);
+    }
+    return ok;
+  }
+
+  // Envia ETH junto com a chamada (função payable): { value: valorWei }
+  async _quitar(enderecoGrupo, credor, valorWei) {
+    const ok = await this._sendTransaction(() =>
+      this._grupo(enderecoGrupo).quitar(credor, { value: valorWei })
+    );
+    if (ok) {
+      await this._carregarDetalhe(enderecoGrupo);
+    }
+    return ok;
+  }
+
+  // A chamada vai para a FACTORY, que confere se quem chama é o criador
+  // e então chama grupo.adicionarMembros(...) no contrato do grupo
+  async _adicionarMembro(enderecoGrupo, novo, apelido) {
+    const ok = await this._sendTransaction(() =>
+      this._factory.adicionarMembro(enderecoGrupo, novo, apelido)
     );
     if (ok) {
       await this._carregarDetalhe(enderecoGrupo);
