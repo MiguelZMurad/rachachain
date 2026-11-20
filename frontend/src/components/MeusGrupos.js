@@ -5,7 +5,8 @@ import { abreviar, formatarSaldo } from "./utils";
 // Props:
 //   grupos: [{ endereco, nome, criador, numMembros, meuSaldo }]
 //   meuEndereco: endereço da conta conectada
-export function MeusGrupos({ grupos, meuEndereco }) {
+//   abrir(endereco): abre a tela do grupo
+export function MeusGrupos({ grupos, meuEndereco, abrir }) {
   if (grupos.length === 0) {
     return (
       <div className="alert alert-secondary">
@@ -30,7 +31,12 @@ export function MeusGrupos({ grupos, meuEndereco }) {
           const souCriador =
             g.criador.toLowerCase() === meuEndereco.toLowerCase();
           return (
-            <tr key={g.endereco}>
+            <tr
+              key={g.endereco}
+              onClick={() => abrir(g.endereco)}
+              style={{ cursor: "pointer" }}
+              title="Abrir grupo"
+            >
               <td>
                 <b>{g.nome}</b>{" "}
                 {souCriador && (
