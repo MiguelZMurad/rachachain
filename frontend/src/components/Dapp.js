@@ -16,6 +16,7 @@ import { WaitingForTransactionMessage } from "./WaitingForTransactionMessage";
 // Componentes do RachaChain
 import { MeusGrupos } from "./MeusGrupos";
 import { CriarGrupo } from "./CriarGrupo";
+import { DetalheGrupo } from "./DetalheGrupo";
 import { REDES, abreviar } from "./utils";
 
 export class Dapp extends React.Component {
@@ -31,6 +32,8 @@ export class Dapp extends React.Component {
 
       // Interface
       mostrarCriar: false,        // formulário de novo grupo aberto?
+      grupoAberto: undefined,     // endereço do grupo exibido (undefined = lista)
+      detalhe: undefined,         // dados do grupo aberto (undefined = carregando)
 
       // Transações
       txBeingSent: undefined,     // hash da transação aguardando mineração
@@ -70,6 +73,7 @@ export class Dapp extends React.Component {
     // 5. Tela principal
     const {
       selectedAddress, chainId, grupos, mostrarCriar, txBeingSent, transactionError,
+      grupoAberto, detalhe,
     } = this.state;
 
     return (
@@ -91,6 +95,23 @@ export class Dapp extends React.Component {
           />
         )}
 
+        {/* Tela de um grupo */}
+        {grupoAberto && (
+          detalhe ? (
+            <DetalheGrupo
+              grupo={detalhe}
+              meuEndereco={selectedAddress}
+              voltar={() => this._fecharGrupo()}
+              atualizar={() => this._carregarDetalhe(grupoAberto)}
+              registrarDespesa={(...args) => this._registrarDespesa(grupoAberto, ...args)}
+            />
+          ) : (
+            <Loading />
+          )
+        )}
+
+        {/* Lista de grupos */}
+        {!grupoAberto && (<>
         {mostrarCriar && (
           <CriarGrupo
             meuEndereco={selectedAddress}
@@ -119,7 +140,12 @@ export class Dapp extends React.Component {
           </div>
         </div>
 
-        <MeusGrupos grupos={grupos} meuEndereco={selectedAddress} />
+        <MeusGrupos
+          grupos={grupos}
+          meuEndereco={selectedAddress}
+          abrir={(endereco) => this._abrirGrupo(endereco)}
+        />
+        </>)}
       </div>
     );
   }
@@ -198,8 +224,37 @@ export class Dapp extends React.Component {
       this._signer
     );
 
-    this.setState({ chainId });
-    await this._carregarGrupos();
+    try {
+      // Existe mesmo um contrato nesse endereço? Na rede local, a Factory some
+      // sempre que o "npx hardhat node" é reiniciado sem um novo deploy.
+      const codigo = await this._provider.getCode(enderecos.GrupoFactory);
+      if (codigo === "0x") {
+        return this.setState({
+          chainId,
+          redeErro:
+            `Nenhum contrato GrupoFactory encontrado em ${enderecos.GrupoFactory} ` +
+            `na rede ${REDES[chainId].nome}. ` +
+            (chainId === 31337
+              ? "A blockchain local provavelmente foi reiniciada: rode o deploy " +
+                "(npx hardhat run scripts/deploy.js --network localhost) e recarregue a página."
+              : "Confira o endereço em frontend/src/contracts/contract-address.json."),
+        });
+      }
+
+      this.setState({ chainId });
+      await this._carregarGrupos();
+    } catch (error) {
+      console.error(error);
+      this.setState({
+        chainId,
+        redeErro:
+          `Não foi possível falar com a rede ${REDES[chainId].nome}. ` +
+          (chainId === 31337
+            ? "Verifique se o \"npx hardhat node\" está rodando."
+            : "Verifique sua conexão.") +
+          ` (Detalhe: ${error.message})`,
+      });
+    }
   }
 
   // Cria um objeto para falar com um contrato Grupo a partir do endereço
@@ -232,6 +287,90 @@ export class Dapp extends React.Component {
 
     // Mais recentes primeiro
     this.setState({ grupos: grupos.reverse() });
+  }
+
+  // ------------------------------------------------------------------
+  // Tela de um grupo
+  // ------------------------------------------------------------------
+  async _abrirGrupo(endereco) {
+    this.setState({ grupoAberto: endereco, detalhe: undefined, mostrarCriar: false });
+    await this._carregarDetalhe(endereco);
+  }
+
+  _fecharGrupo() {
+    this.setState({ grupoAberto: undefined, detalhe: undefined });
+    this._carregarGrupos(); // saldos podem ter mudado
+  }
+
+  async _carregarDetalhe(endereco) {
+    const g = this._grupo(endereco);
+
+    // 1. Estado atual do contrato: nome, criador e membros com apelido e saldo
+    const [nome, criador, enderecosMembros] = await Promise.all([
+      g.nome(),
+      g.criador(),
+      g.getMembros(),
+    ]);
+    const membros = await Promise.all(
+      enderecosMembros.map(async (m) => ({
+        endereco: m,
+        apelido: await g.apelido(m),
+        saldo: await g.saldo(m),
+      }))
+    );
+
+    // 2. Histórico: lido dos EVENTOS emitidos pelo contrato
+    //    (a lista de participantes de cada despesa só existe no evento)
+    const [despesas, quitacoes] = await Promise.all([
+      g.queryFilter(g.filters.DespesaRegistrada(), 0, "latest"),
+      g.queryFilter(g.filters.DividaQuitada(), 0, "latest"),
+    ]);
+
+    // Data de cada evento = timestamp do bloco em que ele foi minerado
+    const blocos = {};
+    const dataDo = async (ev) => {
+      if (!blocos[ev.blockNumber]) {
+        blocos[ev.blockNumber] = await ev.getBlock();
+      }
+      return new Date(blocos[ev.blockNumber].timestamp * 1000);
+    };
+
+    const historico = await Promise.all([
+      ...despesas.map(async (ev) => ({
+        tipo: "despesa",
+        chave: `${ev.transactionHash}-${ev.logIndex}`,
+        ordem: [ev.blockNumber, ev.logIndex],
+        pagador: ev.args.pagador,
+        valor: ev.args.valor,
+        descricao: ev.args.descricao,
+        participantes: ev.args.participantes,
+        data: await dataDo(ev),
+      })),
+      ...quitacoes.map(async (ev) => ({
+        tipo: "quitacao",
+        chave: `${ev.transactionHash}-${ev.logIndex}`,
+        ordem: [ev.blockNumber, ev.logIndex],
+        devedor: ev.args.devedor,
+        credor: ev.args.credor,
+        valor: ev.args.valor,
+        data: await dataDo(ev),
+      })),
+    ]);
+
+    // Mais recentes primeiro
+    historico.sort((a, b) => b.ordem[0] - a.ordem[0] || b.ordem[1] - a.ordem[1]);
+
+    const totalGasto = despesas.reduce(
+      (soma, ev) => soma.add(ev.args.valor),
+      ethers.BigNumber.from(0)
+    );
+
+    // Só atualiza se o usuário ainda estiver olhando este grupo
+    if (this.state.grupoAberto === endereco) {
+      this.setState({
+        detalhe: { endereco, nome, criador, membros, historico, totalGasto },
+      });
+    }
   }
 
   // ------------------------------------------------------------------
@@ -273,6 +412,16 @@ export class Dapp extends React.Component {
       this.setState({ mostrarCriar: false });
       await this._carregarGrupos();
     }
+  }
+
+  async _registrarDespesa(enderecoGrupo, descricao, valorWei, participantes) {
+    const ok = await this._sendTransaction(() =>
+      this._grupo(enderecoGrupo).registrarDespesa(descricao, valorWei, participantes)
+    );
+    if (ok) {
+      await this._carregarDetalhe(enderecoGrupo);
+    }
+    return ok;
   }
 
   // Extrai a mensagem do require do contrato (ex.: "Ja e membro")
